@@ -2,9 +2,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "../../config/config.h"
+
+#include "config/sys_monitor_cfg.h"
 #include "smonitor.h"
-#include "port_smonitor.h"
+#include "./inc/terminal.h"
+#include "./port/inc/port.h"
+
 #include "../utils/utils.h"
 #include "esp_pm.h"
 #include "WatchdogTask.h"
@@ -128,7 +131,7 @@ void Thread(void *pvParameters)
     ret = esp_pm_lock_acquire(m_Lock);
     ESP_ERROR_CHECK(ret);
 #endif
-    portSysMonitor_TxBuff(len);
+    portSysMonitor_TxBuff(SMBuff, len);
     WDT_TASK_RST();
     vTaskDelay(2); // wait for uart flush
 #if CONFIG_PM_ENABLE

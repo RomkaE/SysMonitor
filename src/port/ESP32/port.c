@@ -1,48 +1,14 @@
-/*
- * port_smonitor.c
- *
- *  Created on: 2020-01-07
- *      Author: Roman Egoshin
- */
 
-#if USE_SYS_MONITOR == 1
+#include "config/config.h"
+#include "../inc/port.h"
 
-/*============================ INCLUDES ======================================*/
-
-#include <stdio.h>
-#include <sys/fcntl.h>
-#include <sys/errno.h>
-#include <sys/unistd.h>
-#include <sys/select.h>
 #include "../common/custom_board.h"
-#include "../../config/config.h"
-#include "port_smonitor.h"
 
 // ESP-IDF:
-#include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
 #include "app_error_check.h"
-
-/*============================ PRIVATE DEFINITIONS ===========================*/
-
-#define LOG_TAG   "SMON_PORT"
-
-/*============================ TYPES =========================================*/
-
-
-/*============================ VARIABLES =====================================*/
-
-extern char SMBuff[SYS_MONITOR_BUFF_SIZE];
-
-/*============================ PRIVATE PROTOTYPES ============================*/
-
-
-/*============================ IMPLEMENTATION (PRIVATE FUNCTIONS) ============*/
-
-
-/*============================ IMPLEMENTATION (PUBLIC FUNCTIONS) =============*/
 
 void portSysMonitor_Init(void)
 {
@@ -64,10 +30,8 @@ void portSysMonitor_Init(void)
   APP_CHECK_ARG(res == ESP_OK);
 }
 
-int portSysMonitor_TxBuff(uint16_t _lenght)
+int portSysMonitor_TxBuff(const void *_buff, uint16_t _lenght)
 {
-  int txBytes = uart_write_bytes(SYSMON_UART_NUM, SMBuff, _lenght);
+  int txBytes = uart_write_bytes(SYSMON_UART_NUM, _buff, _lenght);
   return txBytes;
 }
-
-#endif /* USE_SYS_MONITOR */
