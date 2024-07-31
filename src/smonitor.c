@@ -1,221 +1,342 @@
-/*
- * smonitor.c
-
- *
- *  Created on: 
- *      Author: 
- */
-#ifdef USE_SYS_MONITOR
-
-/*============================ INCLUDES ======================================*/
+ 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
-#include "board.h"
-
-// FreeRTOS:
-#include "FreeRTOS.h"
-#include "task.h"
-
-// Task:
+#include "../../config/config.h"
 #include "smonitor.h"
 #include "port_smonitor.h"
+#include "../utils/utils.h"
+#include "esp_pm.h"
+#include "WatchdogTask.h"
 
-/*============================ PRIVATE DEFINITIONS ===========================*/
+// FreeRTOS:
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-typedef struct {
-	uint32_t min;
-	uint32_t aver;
-	uint32_t max;
-	uint32_t i;
-	uint32_t percent;
+// ESP-IDF:
+#include "soc/soc.h"
+#include "esp_log.h"
+
+#define LOG_TAG   "SMON"
+
+#define MAX_TASK_NUMBER (100)
+
+#define MAX_TASK_NAME (17)
+
+typedef struct
+{
+  uint32_t min;
+  uint32_t aver;
+  uint32_t max;
+  uint32_t i;
+  uint32_t percent;
 } SMonitor_Cnt_t;
 
-/*============================ TYPES =========================================*/
-
-
-/*============================ VARIABLES =====================================*/
 char SMBuff[SYS_MONITOR_BUFF_SIZE];
-int WSize;
-
-/*============================ PRIVATE PROTOTYPES ============================*/
-
-void SysMonitor_Task(void *pvParameters);
-
-uint16_t SysMonitor_TimeStats(char *pcWriteBuffer);
-
-/*============================ IMPLEMENTATION (PRIVATE FUNCTIONS) ============*/
-//signed char pcWriteBuffer[1024];
-
-void SysMonitor_Task(void *pvParameters) {
-portTickType xLastWakeTime;
-
-	// Инициализация:
-	xLastWakeTime = xTaskGetTickCount();
-
-	while(1){
-
-		//--
-		WSize = sprintf( (char*)SMBuff, CLEARSCR );
-		WSize += sprintf( &SMBuff[WSize], (const char*)GOTOYX, 0, 0 );
-		WSize += SysMonitor_TimeStats( &SMBuff[WSize] );
-
-		#if SYS_MONITOR_VIEW_FREE_HEAP == 1
-			WSize += sprintf( &SMBuff[WSize], "FREE HEAP:\t%u\r\n",  xPortGetFreeHeapSize() );
-		#endif
-
-		#if SYS_MONITOR_VIEW_MIN_HEAP == 1
-			WSize += sprintf( &SMBuff[WSize], "MIN HEAP:\t%u\r\n",  xPortGetMinimumEverFreeHeapSize() );
-		#endif
-
-		#if SYS_MONITOR_VIEW_BUFF == 1
-			WSize += sprintf( &SMBuff[WSize], "FREE BUFF:\t%u\r\n", SYS_MONITOR_BUFF_SIZE - WSize );
-		#endif
-
-		//--
-		if (WSize > SYS_MONITOR_BUFF_SIZE){
-			WSize = SYS_MONITOR_BUFF_SIZE;
-			SMBuff[SYS_MONITOR_BUFF_SIZE-1] = '!';
-		}//
-
-		portSysMonitor_TxBuff(WSize);
-		vTaskDelayUntil(&xLastWakeTime, SYS_MONITOR_TIME_UPDATE);
-	}//while(1)
-}//SysMonitor_Task
-
-uint16_t SysMonitor_TimeStats(char *pcWriteBuffer){
-xTaskStatusType *pxTaskStatusArray;
-volatile unsigned portBASE_TYPE uxArraySize;
-uint32_t ulTotalTime;
-unsigned portBASE_TYPE uxCurrentNumberOfTasks;
-//--
-unsigned portBASE_TYPE i, iTask, NTask;
-uint16_t ulStatsAsPercentage;
-#if SYS_MONITOR_VIEW_SUMM
-	uint32_t SummTime = 0;
-	uint16_t SumPercent;
+#if CONFIG_PM_ENABLE
+esp_pm_lock_handle_t m_Lock;
 #endif
-uint32_t	iX;
-uint16_t ulBuffSize = 0;
-uint8_t ucSize;
 
-	/* Make sure the write buffer does not contain a string. */
-	*pcWriteBuffer = 0x00;
+static void Thread(void *pvParameters);
 
-	/* Take a snapshot of the number of tasks in case it changes while this
-	function is executing. */
-	uxCurrentNumberOfTasks = uxTaskGetNumberOfTasks();
-	uxArraySize = uxCurrentNumberOfTasks;
+static int TimeStatistic(char *_buff, int _size);
 
-	/* Allocate an array index for each task. */
-	pxTaskStatusArray = pvPortMalloc( uxCurrentNumberOfTasks * sizeof( xTaskStatusType ) );
+void Thread(void *pvParameters)
+{
+  TickType_t xLastWakeTime;
+  xLastWakeTime = xTaskGetTickCount();
+#if CONFIG_PM_ENABLE
+  esp_err_t ret = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "monitor",
+      &m_Lock);
+  ESP_ERROR_CHECK(ret);
+#endif
 
-	if( pxTaskStatusArray != NULL ) {
-		/* Generate the (binary) data. */
-		uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, &ulTotalTime );
+  ESP_LOGI(LOG_TAG, "Thread started");
 
-		/* Avoid divide by zero errors. */
-		if ( ulTotalTime > 0 )
-		{
+  WDT_TASK_ADD(xTaskGetCurrentTaskHandle());
 
-			#if SYS_MONITOR_VIEW_SUMM
-				SumPercent = 0;
-			#endif
+  while (1)
+  {
+    const int size = sizeof(SMBuff);
+    char *buff = SMBuff;
+    int res;
+    int len = 0;
+    bool f_oversize = true;
+    do
+    {
+      res = snprintf(&buff[len], size - len, CLEARSCR);
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
 
-			NTask = 1;
-			/* Create a human readable table from the binary data. */
-			for ( i = 0; i < uxArraySize; i++ ){
+      res = snprintf(&buff[len], size - len, (const char*) GOTOYX, 0, 0);
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
 
-				// TODO - пересмотреть реализацию:
-				// Сортировка по номеру задачи:
-				do {
-					iTask = 0xFF;
-					for ( iX = 0; iX < uxArraySize; iX++ ) {
-						if (pxTaskStatusArray[iX].xTaskNumber == NTask)
-							iTask = iX;
-					}//for(iX)
-					NTask++;
-				} while (iTask == 0xFF);
+      // Time statistic:
+      res = TimeStatistic(&buff[len], size - len);
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
 
-				ulStatsAsPercentage =  100 * ( (float)( pxTaskStatusArray[ iTask ].ulRunTimeCounter ) / ( ulTotalTime/100 ) );
-				pxTaskStatusArray[iTask].ulRunTimeCounter *= SYS_MONITOR_TC_MULT;
-				pxTaskStatusArray[iTask].ulRunTimeCounter /= SYS_MONITOR_TC_DIV;
+#if SYS_MONITOR_VIEW_FREE_HEAP == 1
+      res = snprintf(&buff[len], size - len, "FREE HEAP:\t%u\r\n",
+      xPortGetFreeHeapSize());
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
+#endif
 
-				// TODO - разбить на несколько функций???
-				ucSize = sprintf( pcWriteBuffer, (char*)"%s\t%lu\t%u\t%u.%02u%%\t%u\r\n",
-								pxTaskStatusArray[iTask].pcTaskName,
-								pxTaskStatusArray[iTask].ulRunTimeCounter,
-								pxTaskStatusArray[iTask].usStackHighWaterMark,
-								ulStatsAsPercentage / 100,
-								ulStatsAsPercentage % 100,
-								pxTaskStatusArray[iTask].uxCurrentPriority );
+#if SYS_MONITOR_VIEW_MIN_HEAP == 1
+      res = snprintf(&buff[len], size - len, "MIN HEAP:\t%u\r\n",
+      xPortGetMinimumEverFreeHeapSize());
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
+#endif
 
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+#if SYS_MONITOR_VIEW_BUFF == 1
+      res = snprintf(&buff[len], size - len, "FREE BUFF:\t%u\r\n", size - len);
+      if (res <= 0 || res >= size - len)
+        break;
+      len += res;
+#endif
 
-				#if SYS_MONITOR_VIEW_SUMM == 1
-					SummTime += pxTaskStatusArray[iTask].ulRunTimeCounter;
-					SumPercent += ulStatsAsPercentage;
-				#endif
+      // Clear oversize status:
+      f_oversize = false;
+    }
+    while (0);
 
-			}//for(i)
+    // Check status:
+    if (f_oversize)
+    {
+      static const int err_sym_count = 3;
+      if (size - len > err_sym_count)
+      {
+        memset(&buff[len], '!', err_sym_count);
+        len += err_sym_count;
+      }
+      else
+      {
+        memset(&buff[size - err_sym_count], '!', err_sym_count);
+        len = size;
+      }
+    }
 
-			#if SYS_MONITOR_VIEW_SUMM == 1
+#if CONFIG_PM_ENABLE
+    ret = esp_pm_lock_acquire(m_Lock);
+    ESP_ERROR_CHECK(ret);
+#endif
+    portSysMonitor_TxBuff(len);
+    WDT_TASK_RST();
+    vTaskDelay(2); // wait for uart flush
+#if CONFIG_PM_ENABLE
+    ret = esp_pm_lock_release(m_Lock);
+    ESP_ERROR_CHECK(ret);
+#endif
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(SYS_MONITOR_TIME_UPDATE));
+  }
+}
 
-				// Percent Summ:
-				ucSize = sprintf( pcWriteBuffer, "\r\n-----\r\nSPERCENT:\t%d%%\r\n", SumPercent);
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+int TimeStatistic(char *_buff, int _size)
+{
+  int len = 0;
+  uint32_t ulTotalTime = 0;
 
-				// Time Summ:
-				ucSize = sprintf( pcWriteBuffer, "STIME:\t\t%lu\r\n", SummTime );
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+#if SYS_MONITOR_VIEW_SUMM
+  uint32_t SummTime[2] = { 0 };
+  uint32_t SumPercent[2] = { 0 };
+#endif
 
-			#endif
+  /* Take a snapshot of the number of tasks in case it changes while this
+   function is executing. */
+  UBaseType_t task_count = uxTaskGetNumberOfTasks();
 
-			#if ( SYS_MONITOR_VIEW_RUN_TIME == 1 ) || (SYS_MONITOR_VIEW_HEAP == 1) || ( SYS_MONITOR_VIEW_BUFF == 1 )
+  /* Allocate an array index for each task. */
+  TaskStatus_t *pTasks = pvPortMalloc(task_count * sizeof(TaskStatus_t));
+  if (pTasks == NULL)
+  {
+    int res = snprintf(&_buff[len], _size - len, "FAIL allocate the task array in memory!");
+    if (res > 0 && res < _size - len)
+      len += res;
+    return len;
+  }
 
-				//--
-				ucSize = sprintf( pcWriteBuffer, "\r\n-----\r\n" );
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+  /* Generate the (binary) data. */
+  task_count = uxTaskGetSystemState(pTasks, task_count, &ulTotalTime);
 
-			#endif
+  bool f_oversize = true;
+  do
+  {
+    /* Avoid divide by zero errors. */
+    if (ulTotalTime == 0)
+      break;
 
-			#if SYS_MONITOR_VIEW_RUN_TIME == 1
+#if SYS_MONITOR_VIEW_SUMM
+    SumPercent[0] = 0;
+    SumPercent[1] = 0;
+#endif
 
-				// Run Time in Second:
-				ucSize = sprintf( pcWriteBuffer, "RUN TIME:\t%lu\r\n", (ulTotalTime * SYS_MONITOR_TC_MULT) / ( SYS_MONITOR_TC_DIV) );
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+    int res;
 
-			#endif
+    /* Create a human readable table from the binary data. */
+    for (int i_core = 0; i_core < 2; i_core++)
+    {
+      res = snprintf(&_buff[len], _size - len, "\r\n====== CORE %d ======\r\n", i_core);
+      if (res <= 0 || res >= _size - len)
+        break;
+      len += res;
 
-			#if SYS_MONITOR_VIEW_TICK_CNT == 1
+      UBaseType_t prev_TaskNumber = 0;
+      for (int i = 0; i < task_count; i++)
+      {
+        // Sort list by xTaskNumber:
+        UBaseType_t min_TaskNumber = UINT32_MAX;
+        int i_task = -1;
+        for (int j = 0; j < task_count; j++)
+        {
+          TaskStatus_t *task = &pTasks[j];
+          if (task->xCoreID == i_core && task->xTaskNumber < min_TaskNumber
+              && task->xTaskNumber > prev_TaskNumber)
+          {
+            min_TaskNumber = task->xTaskNumber;
+            i_task = j;
+          }
+        }
+        if (i_task < 0)
+          continue;
 
-				// TickTime:
-				ucSize = sprintf( pcWriteBuffer, "TICK CNT:\t%lu\r\n", xTaskGetTickCount() );
-				pcWriteBuffer += ucSize;
-				ulBuffSize += ucSize;
+        prev_TaskNumber = pTasks[i_task].xTaskNumber;
 
-			#endif
+        char *state;
+        switch (pTasks[i_task].eCurrentState)
+        {
+          case eRunning:
+            state = "Run";
+          break;
+          case eReady:
+            state = "Ready";
+          break;
+          case eBlocked:
+            state = "Block";
+          break;
+          case eSuspended:
+            state = "Suspend";
+          break;
+          case eDeleted:
+            state = "Del";
+          break;
+          default:
+            state = "Unknown";
+          break;
+        }
 
-		}//if(ulTotalTime)
+        res = snprintf(&_buff[len], _size - len, "%02d. %s", pTasks[i_task].xTaskNumber,
+            pTasks[i_task].pcTaskName);
+        if (res <= 0 || res >= _size - len)
+          break;
+        len += res;
 
-		/* Free the array again. */
-		vPortFree( pxTaskStatusArray );
-	}
-	return ulBuffSize;
-}//SysMonitor_TimeStats
+        if (_size - len > MAX_TASK_NAME - res)
+        {
+          memset(&_buff[len], ' ', MAX_TASK_NAME - res);
+          len += MAX_TASK_NAME - res;
+        }
+        else
+          break;
 
-/*============================ IMPLEMENTATION (PUBLIC FUNCTIONS) =============*/
+        #if configCLEAR_RUN_TIME_STATS
+          uint32_t ulStatsAsPercentage = ((pTasks[i_task].ulRunTimeCounter) / ( SYS_MONITOR_TIME_UPDATE/10));
+        #else
+          uint32_t ulStatsAsPercentage = ((pTasks[i_task].ulRunTimeCounter) / (ulTotalTime / 10000));
+        #endif /* configCLEAR_RUN_TIME_STATS */
+        uint32_t ulRunTimeCounter = (pTasks[i_task].ulRunTimeCounter
+            * SYS_MONITOR_TC_MULT) / SYS_MONITOR_TC_DIV;
 
-void SysMonitor_Init(void){
-	// TODO Возможно двойное переполнение счетчика
-	portSysMonitor_Init();
-	xTaskCreate(SysMonitor_Task, TASK_SMONITOR_NAME, TASK_SMONITOR_STACK, NULL, TASK_SMONITOR_PRIORITY, NULL);
-}//SysMonitor_Init
+        if (ulRunTimeCounter > 9999)
+          res = snprintf(&_buff[len], _size - len, "%uk\t", ulRunTimeCounter / 1000);
+        else res = snprintf(&_buff[len], _size - len, "%u \t", ulRunTimeCounter);
+        if (res <= 0 || res >= _size - len)
+          break;
+        len += res;
 
-#endif /* USE_SYS_MONITOR */
+        res = snprintf(&_buff[len], _size - len, "%u\t%2u.%02u%%\t%u\t:%s\r\n",
+            pTasks[i_task].usStackHighWaterMark, ulStatsAsPercentage / 100,
+            ulStatsAsPercentage % 100, pTasks[i_task].uxCurrentPriority, state);
+        if (res <= 0 || res >= _size - len)
+          break;
+        len += res;
+
+#if SYS_MONITOR_VIEW_SUMM == 1
+        if (pTasks[i_task].uxCurrentPriority != 0)
+        {
+          SummTime[i_core] += pTasks[i_task].ulRunTimeCounter;
+          SumPercent[i_core] += ulStatsAsPercentage;
+        }
+#endif
+      } // for(i)
+
+#if SYS_MONITOR_VIEW_SUMM == 1
+      // Percent Summ:
+      res = snprintf(&_buff[len], _size - len, "\r\nLoad core %d:\t%u.%02u%%\r\n", i_core,
+          SumPercent[i_core] / 100, SumPercent[i_core] % 100);
+      if (res <= 0 || res >= _size - len)
+        break;
+      len += res;
+
+      // Time Summ:
+      res = snprintf(&_buff[len], _size - len, "Time core %d:\t%u.%03u sec.\r\n", i_core,
+          SummTime[i_core] / SYS_MONITOR_TC_DIV / 1000,
+          (SummTime[i_core] % ( SYS_MONITOR_TC_DIV * 1000) / 1000));
+      if (res <= 0 || res >= _size - len)
+        break;
+      len += res;
+#endif
+
+      f_oversize = false;
+    } // for(i)
+
+    if (f_oversize)
+      break;
+
+#if ( SYS_MONITOR_VIEW_RUN_TIME == 1 ) || (SYS_MONITOR_VIEW_HEAP == 1) || ( SYS_MONITOR_VIEW_BUFF == 1 )
+    res = snprintf(&_buff[len], _size - len, "\r\n====================\r\n\r\n");
+    if (res <= 0 || res >= _size - len)
+      break;
+    len += res;
+#endif
+
+#if SYS_MONITOR_VIEW_RUN_TIME == 1
+    // Run Time in Second:
+    uint32_t run_time = (ulTotalTime * SYS_MONITOR_TC_MULT) / SYS_MONITOR_TC_DIV;
+    res = snprintf(&_buff[len], _size - len, "RUN TIME:\t%u.%03u sec.\r\n", run_time / 1000,
+        run_time % 1000);
+    if (res <= 0 || res >= _size - len)
+      break;
+    len += res;
+#endif
+
+#if SYS_MONITOR_VIEW_TICK_CNT == 1
+    // TickTime:
+    uint32_t rtos_time = (1000 * xTaskGetTickCount()) / pdMS_TO_TICKS(1000);
+    res = snprintf(&_buff[len], _size - len, "RTOS TIME:\t%u.%03u sec.\r\n",
+        rtos_time / 1000, rtos_time % 1000);
+    if (res <= 0 || res >= _size - len)
+      break;
+    len += res;
+#endif
+  } while (0);
+
+  /* Free the array again. */
+  vPortFree(pTasks);
+
+  return len;
+} //SysMonitor_TimeStats
+
+void smonitor_Init(void)
+{
+  portSysMonitor_Init();
+  xTaskCreatePinnedToCore(Thread, TASK_NAME_SMONITOR, TASK_STACK_SMONITOR, NULL,
+  TASK_PRIO_SMONITOR, NULL, TASK_CPU_NUM);
+}
