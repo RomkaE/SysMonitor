@@ -258,13 +258,13 @@ int TimeStatistic(char *_buff, int _size)
             * SYS_MONITOR_TC_MULT) / SYS_MONITOR_TC_DIV;
 
         if (ulRunTimeCounter > 9999)
-          res = snprintf(&_buff[len], _size - len, "%uk\t", ulRunTimeCounter / 1000);
-        else res = snprintf(&_buff[len], _size - len, "%u \t", ulRunTimeCounter);
+          res = snprintf(&_buff[len], _size - len, "%luk\t", ulRunTimeCounter / 1000);
+        else res = snprintf(&_buff[len], _size - len, "%lu \t", ulRunTimeCounter);
         if (res <= 0 || res >= _size - len)
           break;
         len += res;
 
-        res = snprintf(&_buff[len], _size - len, "%u\t%2u.%02u%%\t%u\t:%s\r\n",
+        res = snprintf(&_buff[len], _size - len, "%lu\t%2lu.%02lu%%\t%u\t:%s\r\n",
             pTasks[i_task].usStackHighWaterMark, ulStatsAsPercentage / 100,
             ulStatsAsPercentage % 100, pTasks[i_task].uxCurrentPriority, state);
         if (res <= 0 || res >= _size - len)
@@ -282,14 +282,14 @@ int TimeStatistic(char *_buff, int _size)
 
 #if SYS_MONITOR_VIEW_SUMM == 1
       // Percent Summ:
-      res = snprintf(&_buff[len], _size - len, "\r\nLoad core %d:\t%u.%02u%%\r\n", i_core,
+      res = snprintf(&_buff[len], _size - len, "\r\nLoad core %d:\t%lu.%02lu%%\r\n", i_core,
           SumPercent[i_core] / 100, SumPercent[i_core] % 100);
       if (res <= 0 || res >= _size - len)
         break;
       len += res;
 
       // Time Summ:
-      res = snprintf(&_buff[len], _size - len, "Time core %d:\t%u.%03u sec.\r\n", i_core,
+      res = snprintf(&_buff[len], _size - len, "Time core %d:\t%lu.%03lu sec.\r\n", i_core,
           SummTime[i_core] / SYS_MONITOR_TC_DIV / 1000,
           (SummTime[i_core] % ( SYS_MONITOR_TC_DIV * 1000) / 1000));
       if (res <= 0 || res >= _size - len)
@@ -313,7 +313,7 @@ int TimeStatistic(char *_buff, int _size)
 #if SYS_MONITOR_VIEW_RUN_TIME == 1
     // Run Time in Second:
     uint32_t run_time = (ulTotalTime * SYS_MONITOR_TC_MULT) / SYS_MONITOR_TC_DIV;
-    res = snprintf(&_buff[len], _size - len, "RUN TIME:\t%u.%03u sec.\r\n", run_time / 1000,
+    res = snprintf(&_buff[len], _size - len, "RUN TIME:\t%lu.%03lu sec.\r\n", run_time / 1000,
         run_time % 1000);
     if (res <= 0 || res >= _size - len)
       break;
@@ -323,7 +323,7 @@ int TimeStatistic(char *_buff, int _size)
 #if SYS_MONITOR_VIEW_TICK_CNT == 1
     // TickTime:
     uint32_t rtos_time = (1000 * xTaskGetTickCount()) / pdMS_TO_TICKS(1000);
-    res = snprintf(&_buff[len], _size - len, "RTOS TIME:\t%u.%03u sec.\r\n",
+    res = snprintf(&_buff[len], _size - len, "RTOS TIME:\t%lu.%03lu sec.\r\n",
         rtos_time / 1000, rtos_time % 1000);
     if (res <= 0 || res >= _size - len)
       break;
