@@ -1,14 +1,10 @@
 
-#include "config/config.h"
+#include "sys_monitor_cfg.h"
 #include "../inc/port.h"
-
-#include "../common/custom_board.h"
 
 // ESP-IDF:
 #include "driver/uart.h"
 #include "driver/gpio.h"
-
-#include "app_error_check.h"
 
 void portSysMonitor_Init(void)
 {

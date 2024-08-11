@@ -6,8 +6,8 @@
 
 #include "sys_monitor_cfg.h"
 #include "smonitor.h"
-#include "./inc/terminal.h"
-#include "./port/inc/port.h"
+#include "inc/terminal.h"
+#include "port/inc/port.h"
 
 // FreeRTOS:
 #include "freertos/FreeRTOS.h"
