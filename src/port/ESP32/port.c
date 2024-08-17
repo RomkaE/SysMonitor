@@ -18,16 +18,16 @@ void portSysMonitor_Init(void)
   };
 
   esp_err_t res;
-  res = uart_param_config(SYSMON_UART_NUM, &uart_config);
-  APP_CHECK_ARG(res == ESP_OK);
-  res = uart_set_pin(SYSMON_UART_NUM, SYSMON_TX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  APP_CHECK_ARG(res == ESP_OK);
-  res = uart_driver_install(SYSMON_UART_NUM, 164, 0, 0, NULL, 0);
-  APP_CHECK_ARG(res == ESP_OK);
+  res = uart_param_config(SYS_MONITOR_UART_NUM, &uart_config);
+  assert(res == ESP_OK);
+  res = uart_set_pin(SYS_MONITOR_UART_NUM, SYS_MONITOR_TX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  assert(res == ESP_OK);
+  res = uart_driver_install(SYS_MONITOR_UART_NUM, 256, 256, 0, NULL, 0);
+  assert(res == ESP_OK);
 }
 
 int portSysMonitor_TxBuff(const void *_buff, uint16_t _lenght)
 {
-  int txBytes = uart_write_bytes(SYSMON_UART_NUM, _buff, _lenght);
+  int txBytes = uart_write_bytes(SYS_MONITOR_UART_NUM, _buff, _lenght);
   return txBytes;
 }

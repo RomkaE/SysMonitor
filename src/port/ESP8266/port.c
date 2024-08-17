@@ -10,18 +10,8 @@
 #include "sdkconfig.h"
 #include "driver/uart.h"
 
-#if CONFIG_PM_ENABLE
-//esp_pm_lock_handle_t m_Lock;
-#endif
-
 void portSysMonitor_Init(void)
 {
-
-  #if CONFIG_PM_ENABLE
-//    esp_err_t ret = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "monitor", &m_Lock);
-//    ESP_ERROR_CHECK(ret);
-  #endif
-
   uart_config_t uart_config = {
       .baud_rate = 115200,
       .data_bits = UART_DATA_8_BITS,
@@ -40,21 +30,10 @@ void portSysMonitor_Init(void)
 
 int portSysMonitor_TxBuff(const void *_buff, uint16_t _lenght)
 {
-
-  #if CONFIG_PM_ENABLE
-//    esp_err_t ret = esp_pm_lock_acquire(m_Lock);
-//    ESP_ERROR_CHECK(ret);
-  #endif
-
   int txBytes = uart_write_bytes(UART_NUM_1, _buff, _lenght);
 
   // wait for uart flush
   vTaskDelay(2);          // TODO - add wait event
-
-  #if CONFIG_PM_ENABLE
-//    ret = esp_pm_lock_release(m_Lock);
-//    ESP_ERROR_CHECK(ret);
-  #endif
 
   return txBytes;
 }
