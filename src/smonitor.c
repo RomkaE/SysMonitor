@@ -249,7 +249,7 @@ int TimeStatistic(char *_buff, int _size)
         #endif
 
         uint32_t percent;
-        #if configCLEAR_RUN_TIME_STATS
+        #if configGENERATE_REAL_TIME_STATS
         {
           #if SYS_MONITOR_USE_FLOAT
           {

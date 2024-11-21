@@ -6,6 +6,6 @@
 
 void portSysMonitor_Init(void);
 
-int portSysMonitor_TxBuff(const void *_buff, uint16_t _lenght);
+void portSysMonitor_TxBuff(const void *_buff, uint16_t _lenght);
 
 #endif /* PORT_SMONITOR_H_ */
